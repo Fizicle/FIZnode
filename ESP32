@@ -1,0 +1,73 @@
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_PN532.h>
+
+// Define the pins used for the PN532 with SPI
+#define PN532_SCK  18
+#define PN532_MISO 19
+#define PN532_MOSI 23
+#define PN532_SS   5
+
+// Create an instance of the PN532 class
+Adafruit_PN532 nfc(PN532_SS);
+
+void setup(void) {
+  Serial.begin(115200);
+  Serial.println("Initializing PN532 to read NTAG data...");
+
+  // Initialize PN532
+  nfc.begin();
+
+  // Check if the PN532 is ready
+  uint32_t versiondata = nfc.getFirmwareVersion();
+  if (!versiondata) {
+    Serial.println("Didn't find PN532 board");
+    while (1); // halt
+  }
+
+  // Print the firmware version
+  Serial.print("Found PN532 with firmware version: ");
+  Serial.println((versiondata >> 16) & 0xFF, HEX);
+
+  // Configure the board to read RFID tags
+  nfc.SAMConfig();
+  Serial.println("Waiting for an NFC card ...");
+}
+
+void loop(void) {
+  uint8_t success;
+  uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 }; // Buffer to store the UID
+  uint8_t uidLength;                       // Length of the UID
+
+  // Wait for an NFC card to be detected
+  success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength);
+
+  if (success) {
+    Serial.println("NFC Card detected!");
+
+    // Buffer to hold data read from the tag (each page is 4 bytes)
+    uint8_t data[16]; // NTAG pages are 4 bytes each; read 4 pages as a starting point
+
+    // Read the first 4 pages (16 bytes) from the tag
+    for (uint8_t i = 0; i < 4; i++) {
+      if (nfc.ntag2xx_ReadPage(i, data + (i * 4))) {
+        Serial.print("Page "); Serial.print(i); Serial.print(": ");
+        for (uint8_t j = 0; j < 4; j++) {
+          // Print each byte as hex
+          Serial.print(" 0x"); Serial.print(data[(i * 4) + j], HEX);
+        }
+        Serial.println();
+      } else {
+        Serial.println("Failed to read page");
+      }
+    }
+
+    // Now you can analyze the raw hex output to understand the NDEF message structure
+
+    delay(1000);
+  } else {
+    // No card detected, continue looping
+    Serial.println("No card detected");
+    delay(500);
+  }
+}
