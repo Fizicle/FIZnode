@@ -1,0 +1,93 @@
+#include <Wire.h>
+#include <Adafruit_PN532.h>
+
+#define SCK_PIN    13
+#define MISO_PIN   12
+#define MOSI_PIN   11
+#define SS_PIN     10
+#define RST_PIN    9
+
+Adafruit_PN532 nfc(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
+
+// Define both possible keys for testing
+uint8_t keyDirA[6] = { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5 };
+uint8_t keyAppA[6] = { 0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7 };
+
+void setup(void) {
+  Serial.begin(115200);
+  Serial.println("PN532 NFC Reader Authentication Example");
+
+  // Initialize PN532
+  nfc.begin();
+  uint32_t versiondata = nfc.getFirmwareVersion();
+  if (!versiondata) {
+    Serial.println("Didn't find PN532 module!");
+    while (1);
+  }
+
+  Serial.print("Found chip PN532 with firmware version: ");
+  Serial.println(versiondata, HEX);
+
+  // Configure SAM (Secure Access Module)
+  nfc.SAMConfig();
+  Serial.println("Waiting for an NFC tag ...");
+}
+
+void loop(void) {
+  uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
+  uint8_t uidLength;
+
+  // Wait for an NFC tag
+  if (nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength)) {
+    Serial.println("Found an NFC tag!");
+    Serial.print("UID Length: "); Serial.print(uidLength, DEC); Serial.println(" bytes");
+    Serial.print("UID Value: ");
+    for (uint8_t i = 0; i < uidLength; i++) {
+      Serial.print(" 0x"); Serial.print(uid[i], HEX);
+    }
+    Serial.println("");
+
+    // Try different blocks and both keys
+    for (uint8_t blockNumber = 4; blockNumber <= 10; blockNumber++) {
+      Serial.print("Trying to authenticate block "); Serial.println(blockNumber);
+
+      // First, try with the MAD directory key
+      Serial.println("Trying MAD directory key...");
+      if (nfc.mifareclassic_AuthenticateBlock(uid, uidLength, blockNumber, 0, keyDirA)) {
+        Serial.print("Authenticated with MAD directory key to block ");
+        Serial.println(blockNumber);
+        readBlock(blockNumber);
+        break;
+      } else {
+        Serial.println("MAD directory key authentication failed.");
+      }
+
+      // Next, try with the NDEF application key
+      Serial.println("Trying NDEF application key...");
+      if (nfc.mifareclassic_AuthenticateBlock(uid, uidLength, blockNumber, 0, keyAppA)) {
+        Serial.print("Authenticated with NDEF application key to block ");
+        Serial.println(blockNumber);
+        readBlock(blockNumber);
+        break;
+      } else {
+        Serial.println("NDEF application key authentication failed.");
+      }
+    }
+
+    // Delay to prevent constant polling
+    delay(2000);
+  }
+}
+
+void readBlock(uint8_t blockNumber) {
+  uint8_t data[16];
+  if (nfc.mifareclassic_ReadDataBlock(blockNumber, data)) {
+    Serial.print("Data Block "); Serial.print(blockNumber); Serial.println(":");
+    for (int i = 0; i < 16; i++) {
+      Serial.print(" 0x"); Serial.print(data[i], HEX);
+    }
+    Serial.println();
+  } else {
+    Serial.println("Error reading data block.");
+  }
+}
